@@ -16,7 +16,9 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 REFRESH_TOKEN_EXPIRE_DAYS = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Bruk pbkdf2_sha256 i stedet for bcrypt for å unngå miljøspesifikke
+# bcrypt-backend-problemer på Vercel.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 
