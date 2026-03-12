@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -588,37 +589,342 @@ class RegisterDialog(QDialog):
 
 class UsersDialog(QDialog):
     """Admin-dialog: list brukere, legg til, fjern."""
+
+    _ROLE_BADGE = {
+        "admin": ("Admin", "#f59e0b", "#1c1400"),
+        "user":  ("Bruker", "#3b82f6", "#001433"),
+    }
+
     def __init__(self, config, current_user: dict, parent=None) -> None:
         super().__init__(parent)
         self.config = config
         self.current_user = current_user
+        self._users: list[dict] = []
         self.setWindowTitle("Brukere i organisasjonen")
         self.setObjectName("settingsDialog")
-        self.resize(500, 400)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setMinimumWidth(680)
+        self.setMinimumHeight(480)
+        self.resize(720, 540)
         self._drag_pos: QPoint | None = None
+
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 24, 24, 24)
-        root.addWidget(QLabel("Brukere (kun for admin)"))
-        self.list_widget = QListWidget()
-        self.list_widget.setObjectName("layoutList")
-        root.addWidget(self.list_widget, 1)
-        btn_row = QHBoxLayout()
-        add_btn = QPushButton("Legg til bruker")
-        add_btn.setObjectName("secondaryButton")
-        add_btn.clicked.connect(self._add_user)
-        remove_btn = QPushButton("Fjern valgt")
-        remove_btn.setObjectName("secondaryButton")
-        remove_btn.clicked.connect(self._remove_user)
-        btn_row.addWidget(add_btn)
-        btn_row.addWidget(remove_btn)
-        btn_row.addStretch()
-        root.addLayout(btn_row)
-        close_btn = QPushButton("Lukk")
-        close_btn.setObjectName("primaryButton")
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Toppbar ──────────────────────────────────────────────────────────
+        header = QFrame()
+        header.setObjectName("dialogHeader")
+        header.setStyleSheet(
+            "#dialogHeader { background: #0f172a; border-bottom: 1px solid #1e293b; }"
+        )
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(20, 14, 14, 14)
+        hl.setSpacing(10)
+
+        title_lbl = QLabel("Brukere")
+        title_lbl.setStyleSheet("font-size: 15px; font-weight: 600; color: #f1f5f9;")
+        org = current_user.get("organization_name", "")
+        sub_lbl = QLabel(org)
+        sub_lbl.setStyleSheet("font-size: 12px; color: #64748b;")
+        hl.addWidget(title_lbl)
+        hl.addWidget(sub_lbl)
+        hl.addStretch()
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #64748b; border: none;"
+            "  border-radius: 6px; font-size: 14px; }"
+            "QPushButton:hover { background: #1e293b; color: #f1f5f9; }"
+        )
         close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
+        hl.addWidget(close_btn)
+        root.addWidget(header)
+
+        # ── Body ─────────────────────────────────────────────────────────────
+        body = QWidget()
+        body.setStyleSheet("background: #0f172a;")
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(20, 18, 20, 18)
+        bl.setSpacing(14)
+
+        # Brukertabell
+        self.table = QTableWidget(0, 3)
+        self.table.setObjectName("usersTable")
+        self.table.setHorizontalHeaderLabels(["E-post", "Rolle", ""])
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 90)
+        self.table.setColumnWidth(2, 72)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(False)
+        self.table.setStyleSheet(
+            "QTableWidget { background: #0b1120; border: 1px solid #1e293b;"
+            "  border-radius: 8px; font-size: 13px; color: #e2e8f0; outline: none; }"
+            "QTableWidget::item { padding: 8px 10px; border-bottom: 1px solid #1e293b; }"
+            "QTableWidget::item:selected { background: #1e3a5f; color: #fff; }"
+            "QHeaderView::section { background: #0f172a; color: #64748b; font-size: 11px;"
+            "  font-weight: 600; padding: 6px 10px; border: none;"
+            "  border-bottom: 1px solid #1e293b; text-transform: uppercase; }"
+        )
+        bl.addWidget(self.table, 1)
+
+        # Status/feil-linje
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("font-size: 12px; color: #f87171; min-height: 16px;")
+        bl.addWidget(self.status_label)
+
+        # Knapper
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        self.add_btn = QPushButton("+ Legg til bruker")
+        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_btn.setStyleSheet(
+            "QPushButton { background: #1d4ed8; color: #fff; border: none;"
+            "  border-radius: 7px; padding: 8px 18px; font-size: 13px; font-weight: 600; }"
+            "QPushButton:hover { background: #2563eb; }"
+            "QPushButton:disabled { background: #1e293b; color: #475569; }"
+        )
+        self.add_btn.clicked.connect(self._add_user)
+
+        self.refresh_btn = QPushButton("↻  Oppdater")
+        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_btn.setStyleSheet(
+            "QPushButton { background: #1e293b; color: #94a3b8; border: none;"
+            "  border-radius: 7px; padding: 8px 14px; font-size: 13px; }"
+            "QPushButton:hover { background: #263248; color: #e2e8f0; }"
+        )
+        self.refresh_btn.clicked.connect(self._load_users)
+
+        btn_row.addWidget(self.add_btn)
+        btn_row.addWidget(self.refresh_btn)
+        btn_row.addStretch()
+        bl.addLayout(btn_row)
+
+        root.addWidget(body, 1)
         self._load_users()
+
+    # ── drag support ──────────────────────────────────────────────────────────
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _load_users(self) -> None:
+        self.status_label.setText("")
+        self.table.setRowCount(0)
+        try:
+            from api_client import list_users
+            self._users = list_users(self.config)
+        except Exception as exc:
+            self.status_label.setText(f"Kunne ikke hente brukere: {exc}"[:120])
+            return
+
+        for u in self._users:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+
+            email_item = QTableWidgetItem(u.get("email", ""))
+            email_item.setData(Qt.ItemDataRole.UserRole, u.get("id"))
+            self.table.setItem(row, 0, email_item)
+
+            role = u.get("role", "user")
+            label_txt, bg, fg = self._ROLE_BADGE.get(role, (role, "#334155", "#e2e8f0"))
+            badge = QLabel(f" {label_txt} ")
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setStyleSheet(
+                f"background:{bg}; color:{fg}; border-radius:4px;"
+                "font-size:11px; font-weight:600; padding:2px 6px;"
+            )
+            cell = QWidget()
+            cl = QHBoxLayout(cell)
+            cl.setContentsMargins(6, 4, 6, 4)
+            cl.addWidget(badge)
+            cl.addStretch()
+            self.table.setCellWidget(row, 1, cell)
+
+            if u.get("id") != self.current_user.get("id"):
+                del_btn = QPushButton("Fjern")
+                del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                del_btn.setStyleSheet(
+                    "QPushButton { background: transparent; color: #ef4444; border: none;"
+                    "  font-size: 12px; padding: 4px 8px; border-radius: 5px; }"
+                    "QPushButton:hover { background: #1f1010; color: #f87171; }"
+                )
+                del_btn.clicked.connect(lambda _, uid=u.get("id"), em=u.get("email", ""): self._remove_user(uid, em))
+                cell2 = QWidget()
+                cl2 = QHBoxLayout(cell2)
+                cl2.setContentsMargins(4, 2, 4, 2)
+                cl2.addWidget(del_btn)
+                self.table.setCellWidget(row, 2, cell2)
+
+            self.table.setRowHeight(row, 44)
+
+    def _add_user(self) -> None:
+        dlg = _AddUserDialog(self)
+        if not dlg.exec():
+            return
+        email, password, role = dlg.values()
+        if not email or not password:
+            self.status_label.setText("E-post og passord er påkrevd.")
+            return
+        self.add_btn.setEnabled(False)
+        self.add_btn.setText("Oppretter…")
+        try:
+            from api_client import create_user
+            create_user(self.config, email, password, role)
+            self._load_users()
+            self.status_label.setStyleSheet("font-size:12px; color:#4ade80; min-height:16px;")
+            self.status_label.setText(f"Bruker {email} ble opprettet.")
+        except Exception as exc:
+            self.status_label.setStyleSheet("font-size:12px; color:#f87171; min-height:16px;")
+            self.status_label.setText(str(exc)[:160])
+        finally:
+            self.add_btn.setEnabled(True)
+            self.add_btn.setText("+ Legg til bruker")
+
+    def _remove_user(self, uid, email: str) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Fjern bruker",
+            f"Vil du fjerne brukeren\n{email}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from api_client import delete_user
+            delete_user(self.config, int(uid))
+            self._load_users()
+            self.status_label.setStyleSheet("font-size:12px; color:#4ade80; min-height:16px;")
+            self.status_label.setText(f"Bruker ble fjernet.")
+        except Exception as exc:
+            self.status_label.setStyleSheet("font-size:12px; color:#f87171; min-height:16px;")
+            self.status_label.setText(str(exc)[:160])
+
+
+class _AddUserDialog(QDialog):
+    """Popup for å opprette en ny bruker – moderne, bredde-riktig."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Legg til bruker")
+        self.setObjectName("settingsDialog")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.setMinimumWidth(440)
+        self.resize(460, 0)
+        self._drag_pos: QPoint | None = None
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Header
+        header = QFrame()
+        header.setStyleSheet("background:#0f172a; border-bottom:1px solid #1e293b;")
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(20, 14, 14, 14)
+        title = QLabel("Legg til bruker")
+        title.setStyleSheet("font-size:14px; font-weight:600; color:#f1f5f9;")
+        hl.addWidget(title)
+        hl.addStretch()
+        x_btn = QPushButton("✕")
+        x_btn.setFixedSize(26, 26)
+        x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        x_btn.setStyleSheet(
+            "QPushButton{background:transparent;color:#64748b;border:none;border-radius:5px;font-size:13px;}"
+            "QPushButton:hover{background:#1e293b;color:#f1f5f9;}"
+        )
+        x_btn.clicked.connect(self.reject)
+        hl.addWidget(x_btn)
+        root.addWidget(header)
+
+        # Body
+        body = QWidget()
+        body.setStyleSheet("background:#0f172a;")
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(24, 20, 24, 24)
+        bl.setSpacing(12)
+
+        def field(label: str, placeholder: str, echo=QLineEdit.EchoMode.Normal) -> QLineEdit:
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color:#94a3b8; font-size:12px; font-weight:500;")
+            bl.addWidget(lbl)
+            inp = QLineEdit()
+            inp.setPlaceholderText(placeholder)
+            inp.setEchoMode(echo)
+            inp.setObjectName("dialogInput")
+            inp.setMinimumHeight(36)
+            bl.addWidget(inp)
+            return inp
+
+        self.email_in = field("E-post", "bruker@bedrift.no")
+        self.pw_in = field("Passord (minst 8 tegn)", "••••••••", QLineEdit.EchoMode.Password)
+
+        role_lbl = QLabel("Rolle")
+        role_lbl.setStyleSheet("color:#94a3b8; font-size:12px; font-weight:500;")
+        bl.addWidget(role_lbl)
+        self.role_combo = QComboBox()
+        self.role_combo.addItems(["user", "admin"])
+        self.role_combo.setObjectName("dialogInput")
+        self.role_combo.setMinimumHeight(36)
+        bl.addWidget(self.role_combo)
+
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color:#f87171; font-size:12px; min-height:16px;")
+        self.error_label.setWordWrap(True)
+        bl.addWidget(self.error_label)
+
+        bl.addSpacing(4)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        cancel_btn = QPushButton("Avbryt")
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.setStyleSheet(
+            "QPushButton{background:#1e293b;color:#94a3b8;border:none;"
+            "border-radius:7px;padding:9px 18px;font-size:13px;}"
+            "QPushButton:hover{background:#263248;color:#e2e8f0;}"
+        )
+        cancel_btn.clicked.connect(self.reject)
+
+        self.ok_btn = QPushButton("Opprett bruker")
+        self.ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ok_btn.setStyleSheet(
+            "QPushButton{background:#1d4ed8;color:#fff;border:none;"
+            "border-radius:7px;padding:9px 18px;font-size:13px;font-weight:600;}"
+            "QPushButton:hover{background:#2563eb;}"
+            "QPushButton:disabled{background:#1e293b;color:#475569;}"
+        )
+        self.ok_btn.setDefault(True)
+        self.ok_btn.clicked.connect(self._validate_and_accept)
+
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(self.ok_btn)
+        bl.addLayout(btn_row)
+
+        root.addWidget(body)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
@@ -634,70 +940,26 @@ class UsersDialog(QDialog):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
 
-    def _load_users(self) -> None:
-        try:
-            from api_client import list_users, APIError
-            users = list_users(self.config)
-            self.list_widget.clear()
-            for u in users:
-                item = QListWidgetItem(f"{u.get('email', '')}  ({u.get('role', '')})")
-                item.setData(Qt.ItemDataRole.UserRole, u.get("id"))
-                self.list_widget.addItem(item)
-        except Exception as e:
-            from api_client import APIError
-            self.list_widget.clear()
-            self.list_widget.addItem(QListWidgetItem(f"Feil: {e}"))
-
-    def _add_user(self) -> None:
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Legg til bruker")
-        layout = QVBoxLayout(dlg)
-        layout.addWidget(QLabel("E-post"))
-        email_in = QLineEdit()
-        email_in.setObjectName("dialogInput")
-        layout.addWidget(email_in)
-        layout.addWidget(QLabel("Passord"))
-        pw_in = QLineEdit()
-        pw_in.setEchoMode(QLineEdit.EchoMode.Password)
-        pw_in.setObjectName("dialogInput")
-        layout.addWidget(pw_in)
-        layout.addWidget(QLabel("Rolle"))
-        role_combo = QComboBox()
-        role_combo.addItems(["user", "admin"])
-        layout.addWidget(role_combo)
-        row = QHBoxLayout()
-        ok = QPushButton("Opprett")
-        ok.clicked.connect(dlg.accept)
-        cancel = QPushButton("Avbryt")
-        cancel.clicked.connect(dlg.reject)
-        row.addWidget(cancel)
-        row.addWidget(ok)
-        layout.addLayout(row)
-        if dlg.exec():
-            try:
-                from api_client import create_user, APIError
-                create_user(self.config, email_in.text().strip(), pw_in.text(), role_combo.currentText())
-                self._load_users()
-            except Exception as e:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "Brukere", str(e)[:200])
-
-    def _remove_user(self) -> None:
-        item = self.list_widget.currentItem()
-        if not item:
+    def _validate_and_accept(self) -> None:
+        email = self.email_in.text().strip()
+        pw = self.pw_in.text()
+        if not email:
+            self.error_label.setText("E-post er påkrevd.")
             return
-        uid = item.data(Qt.ItemDataRole.UserRole)
-        if uid == self.current_user.get("id"):
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Brukere", "Du kan ikke fjerne deg selv.")
+        if "@" not in email:
+            self.error_label.setText("Ugyldig e-postadresse.")
             return
-        try:
-            from api_client import delete_user
-            delete_user(self.config, int(uid))
-            self._load_users()
-        except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Brukere", str(e)[:200])
+        if len(pw) < 8:
+            self.error_label.setText("Passord må ha minst 8 tegn.")
+            return
+        self.accept()
+
+    def values(self) -> tuple[str, str, str]:
+        return (
+            self.email_in.text().strip(),
+            self.pw_in.text(),
+            self.role_combo.currentText(),
+        )
 
 
 class CreateLayoutDialog(QDialog):
