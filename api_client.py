@@ -1,4 +1,5 @@
 """API client for OPS Monitor backend. Handles token, 401, refresh."""
+import base64
 import requests
 from typing import Any, Optional
 
@@ -19,15 +20,42 @@ class NotAuthenticatedError(APIError):
 _DEFAULT_BASE = "https://opsmonitor-alpha.vercel.app"
 
 
-def _base_url(config) -> str:
-    url = getattr(config, "api_base_url", None) or _DEFAULT_BASE
-    return url.rstrip("/")
+def _parse_api_key(key: str) -> Optional[tuple[str, str]]:
+    """Parse ``opsm_{base64url(url)}_{secret}`` → (server_url, secret) or None."""
+    parts = key.split("_", 2)
+    if len(parts) != 3 or parts[0] != "opsm":
+        return None
+    try:
+        padded = parts[1] + "=" * (-len(parts[1]) % 4)
+        server_url = base64.urlsafe_b64decode(padded).decode()
+        if not server_url.startswith("http"):
+            return None
+        return server_url.rstrip("/"), parts[2]
+    except Exception:
+        return None
 
 
 def _api_key(config) -> Optional[str]:
     """Return the organisation API key if configured."""
     key = getattr(config, "api_key", "") or ""
     return key.strip() or None
+
+
+def _base_url(config) -> str:
+    """Derive server base URL.
+
+    Priority:
+    1. URL decoded from the API key (self-contained, no extra config needed)
+    2. Manually configured api_base_url
+    3. Default Vercel deployment
+    """
+    key = _api_key(config)
+    if key:
+        parsed = _parse_api_key(key)
+        if parsed:
+            return parsed[0]   # URL embedded in key
+    url = getattr(config, "api_base_url", None) or _DEFAULT_BASE
+    return url.rstrip("/")
 
 
 def _get_token(config) -> Optional[str]:

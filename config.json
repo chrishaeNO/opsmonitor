@@ -56,5 +56,6 @@
     "logo_secondary": ""
   },
   "fullscreen": false,
-  "api_base_url": "https://opsmonitor-alpha.vercel.app"
+  "api_base_url": "https://opsmonitor-alpha.vercel.app",
+  "api_key": "opsm_3f3ef8d7f24f4b3f7b21ada25e9f60f7186212e589e94e0ab64a1dcdaf844133"
 }

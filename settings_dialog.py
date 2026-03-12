@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from typing import Dict, List
 
 from PySide6.QtCore import Qt, QPoint
@@ -24,6 +25,19 @@ from PySide6.QtWidgets import (
 
 from data_loader import get_excel_headers, infer_column_mapping
 from models import AppConfig, AssetFile
+
+
+def _decode_key_url(key: str) -> str | None:
+    """Extract embedded server URL from an API key, or None if invalid."""
+    parts = key.strip().split("_", 2)
+    if len(parts) != 3 or parts[0] != "opsm":
+        return None
+    try:
+        padded = parts[1] + "=" * (-len(parts[1]) % 4)
+        url = base64.urlsafe_b64decode(padded).decode()
+        return url.rstrip("/") if url.startswith("http") else None
+    except Exception:
+        return None
 
 
 COLUMN_FIELDS = [
@@ -103,6 +117,22 @@ class SettingsDialog(QDialog):
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         self._drag_pos = None
         super().mouseReleaseEvent(event)
+
+    def _update_key_status(self, key: str) -> None:
+        key = key.strip()
+        if not key:
+            self._key_status.setText("")
+            return
+        url = _decode_key_url(key)
+        if url:
+            self._key_status.setText(
+                f"<span style='color:#34d399;'>&#10003; Server: <b>{url}</b></span>"
+            )
+        else:
+            self._key_status.setText(
+                "<span style='color:#f87171;'>&#10005; Ugyldig nøkkelformat "
+                "(forventet <code>opsm_…</code>)</span>"
+            )
 
     def _build_sources_tab(self) -> QWidget:
         tab = QWidget()
@@ -308,7 +338,7 @@ class SettingsDialog(QDialog):
 
         key_input_row = QHBoxLayout()
         self.api_key_input = QLineEdit(self.config.api_key)
-        self.api_key_input.setPlaceholderText("opsm_1a2b3c4d…  (hentes fra admin-portalen)")
+        self.api_key_input.setPlaceholderText("opsm_…  (lim inn fra admin-portalen → API-nøkler)")
         self.api_key_input.setObjectName("dialogInput")
         self.api_key_input.setMinimumHeight(36)
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
@@ -326,8 +356,17 @@ class SettingsDialog(QDialog):
         key_input_row.addWidget(toggle_btn)
         key_layout.addLayout(key_input_row)
 
+        # Live feedback: show decoded server URL when a valid key is pasted
+        self._key_status = QLabel()
+        self._key_status.setObjectName("welcomeSubtitle")
+        self._key_status.setWordWrap(True)
+        key_layout.addWidget(self._key_status)
+        self._update_key_status(self.config.api_key)
+        self.api_key_input.textChanged.connect(self._update_key_status)
+
         key_hint = QLabel(
-            "Format: <code>opsm_&lt;64 hex-tegn&gt;</code>  —  administreres på "
+            "Nøkkelen inneholder server-URL og kobler appen direkte — ingen manuell URL-konfigurasjon nødvendig.<br>"
+            "Opprett nøkler på: "
             "<a href='https://opsmonitor-alpha.vercel.app/admin' style='color:#60a5fa;'>opsmonitor-alpha.vercel.app/admin</a>"
         )
         key_hint.setObjectName("welcomeSubtitle")
