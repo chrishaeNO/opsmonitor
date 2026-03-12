@@ -8,7 +8,7 @@ from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import QPixmap, QGuiApplication, QIcon
 import uuid
 
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QTextEdit, QVBoxLayout, QWidget, QMenu
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QTextEdit, QVBoxLayout, QWidget, QMenu, QTabBar
 
 from app_styles import AMBER, BLUE, GREEN, RED, get_stylesheet
 from data_loader import load_data_from_file
@@ -27,6 +27,7 @@ class OperationsCenterWindow(QMainWindow):
         self.config: AppConfig = load_config()
         self.records: List[PersonnelRecord] = []
         self._ensure_layout_store()
+        self.tab_bar: QTabBar | None = None
         self.setWindowTitle(APP_NAME)
         # Sørg for at vinduet faktisk kan resizes fritt
         self.setMinimumSize(900, 600)
@@ -113,6 +114,17 @@ class OperationsCenterWindow(QMainWindow):
         tl.addWidget(settings_btn)
 
         ml.addWidget(topbar)
+
+        # Tab-bar for dashboards (layouts) – likner nettleser/kode-faner
+        self.tab_bar = QTabBar()
+        self.tab_bar.setObjectName("layoutTabBar")
+        self.tab_bar.setMovable(True)
+        self.tab_bar.setTabsClosable(True)
+        self.tab_bar.setDocumentMode(True)
+        self.tab_bar.currentChanged.connect(self._on_tab_changed)
+        self.tab_bar.tabCloseRequested.connect(self._on_tab_close_requested)
+        ml.addWidget(self.tab_bar)
+        self._refresh_layout_tabs()
 
         cols_cfg = self.config.columns
         name_col = cols_cfg.get("name", "Navn")
@@ -341,6 +353,70 @@ class OperationsCenterWindow(QMainWindow):
         # Sørg for at canvas kjenner til gjeldende edit-mode
         self.canvas.set_edit_mode(self.edit_mode)
 
+    def _refresh_layout_tabs(self) -> None:
+        """Oppdater tab-bar med ett faneblad per layout + en «+»-fane."""
+        if not self.tab_bar:
+            return
+        self.tab_bar.blockSignals(True)
+        self.tab_bar.clear()
+
+        layouts = self.config.layout.get("layouts", [])
+        active_id = self.config.layout.get("active_layout_id", "")
+        active_index = -1
+        for idx, entry in enumerate(layouts):
+            title = entry.get("title", "Dashboard")
+            tab_index = self.tab_bar.addTab(title)
+            self.tab_bar.setTabData(tab_index, entry.get("id"))
+            if entry.get("id") == active_id:
+                active_index = tab_index
+
+        # Siste fane er alltid "+" for å opprette nytt layout
+        plus_index = self.tab_bar.addTab("+")
+        self.tab_bar.setTabData(plus_index, None)
+
+        if active_index >= 0:
+            self.tab_bar.setCurrentIndex(active_index)
+        else:
+            self.tab_bar.setCurrentIndex(0 if layouts else plus_index)
+
+        self.tab_bar.blockSignals(False)
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Bytt aktivt layout når bruker klikker på en fane."""
+        if not self.tab_bar or index < 0:
+            return
+        layout_id = self.tab_bar.tabData(index)
+        # "+"-fane → opprett nytt layout
+        if layout_id is None:
+            self.open_create_layout_dialog()
+            return
+        if layout_id == self.config.layout.get("active_layout_id"):
+            return
+        self.config.layout["active_layout_id"] = layout_id
+        active = self._active_layout()
+        self.config.layout["title"] = active.get("title", "Dashboard")
+        save_config(self.config)
+        self._apply_active_layout_to_canvas()
+        if hasattr(self, "header_title"):
+            self.header_title.set_title(self.config.layout["title"], "Build med moduler • Drag & drop")
+        # Ved bytte av faner vil bruker ofte forvente oppdatert data
+        self.refresh_data()
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        """Lukk (slett) et layout når X på fanen klikkes."""
+        if not self.tab_bar or index < 0:
+            return
+        layout_id = self.tab_bar.tabData(index)
+        # Ikke støtt å lukke "+"-fanen
+        if layout_id is None:
+            return
+        # Sett dette layoutet som aktivt og bruk eksisterende slettelogikk
+        self.config.layout["active_layout_id"] = layout_id
+        save_config(self.config)
+        self.delete_current_layout()
+        # delete_current_layout oppdaterer aktivt layout; sørg for at faner følger etter
+        self._refresh_layout_tabs()
+
     def _position_modules_drawer(self) -> None:
         if not hasattr(self, "modules_drawer") or not self.modules_drawer.isVisible():
             return
@@ -431,7 +507,7 @@ class OperationsCenterWindow(QMainWindow):
         self.config.layout["active_layout_id"] = new_layouts[0]["id"]
         self.config.layout["title"] = new_layouts[0].get("title", "Dashboard")
         save_config(self.config)
-        self._refresh_layout_combo()
+        self._refresh_layout_tabs()
         self._apply_active_layout_to_canvas()
         if hasattr(self, "header_title"):
             self.header_title.set_title(self.config.layout["title"], "Build med moduler • Drag & drop")
@@ -459,7 +535,7 @@ class OperationsCenterWindow(QMainWindow):
             self.config.layout["active_layout_id"] = new_id
             self.config.layout["title"] = entry["title"]
             save_config(self.config)
-            self._refresh_layout_combo()
+            self._refresh_layout_tabs()
             self._apply_active_layout_to_canvas()
             if hasattr(self, "header_title"):
                 self.header_title.set_title(entry["title"], "Build med moduler • Drag & drop")

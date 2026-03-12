@@ -64,5 +64,6 @@
     "logo_primary": "/Users/christianhae/Documents/ChatGPT Image 22. feb. 2026, 11_08_54.png",
     "logo_secondary": ""
   },
-  "fullscreen": false
+  "fullscreen": false,
+  "api_base_url": "http://127.0.0.1:8000"
 }
