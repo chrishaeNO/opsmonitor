@@ -452,8 +452,9 @@ class LoginScreen(QWidget):
         self._dot_timer.timeout.connect(self._tick_loader)
         self._dot_count = 0
 
-        self._thread: QThread | None = None
-        self._worker: _LoginWorker | None = None
+        self._busy = False
+        self._active_thread: QThread | None = None
+        self._active_worker: _LoginWorker | None = None
 
     def _set_loading(self, loading: bool) -> None:
         self.email_input.setEnabled(not loading)
@@ -486,33 +487,42 @@ class LoginScreen(QWidget):
             self.error_label.setText("Konfigurasjon mangler")
             return
 
-        # Prevent double-submit while a request is running
-        if self._thread is not None and self._thread.isRunning():
+        if self._busy:
             return
 
+        self._busy = True
         self._set_loading(True)
 
-        self._thread = QThread(self)
-        self._worker = _LoginWorker(config, email, password)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(self._on_worker_success)
-        self._worker.failed.connect(self._on_worker_error)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.failed.connect(self._thread.quit)
-        self._thread.finished.connect(self._worker.deleteLater)
-        self._thread.start()
+        # Create thread without parent so thread.deleteLater() fully cleans it up
+        thread = QThread()
+        worker = _LoginWorker(config, email, password)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_worker_success)
+        worker.failed.connect(self._on_worker_error)
+        # Orderly shutdown: worker signals → thread quits → both cleaned up
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        # Keep refs alive until thread finishes to prevent premature GC
+        self._active_thread = thread
+        self._active_worker = worker
+        thread.start()
 
     def _on_worker_success(self, user: dict) -> None:
+        # Called on main thread via cross-thread queued connection – safe to touch UI
+        self._busy = False
         self._set_loading(False)
-        self._thread = None
-        self._worker = None
+        # Emit via AutoConnection (direct) so parent receives it synchronously.
+        # Parent schedules setCentralWidget via QTimer to stay out of this stack frame.
         self.loginSuccess.emit(user)
 
     def _on_worker_error(self, msg: str) -> None:
+        self._busy = False
         self._set_loading(False)
-        self._thread = None
-        self._worker = None
         self.error_label.setText(msg)
 
     def _open_register(self) -> None:

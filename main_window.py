@@ -79,18 +79,12 @@ class OperationsCenterWindow(QMainWindow):
         self._ensure_logged_in()
 
     def _show_login_screen(self, status_message: str = "Logg inn for å bruke OPS Monitor") -> None:
-        """Vis en ny login-skjerm. Bruker QueuedConnection så setCentralWidget
-        alltid kjøres mellom event-loop-iterasjoner – aldri inne i en slot-stack."""
+        """Vis en ny login-skjerm med ren signal-kobling."""
         self.current_user = None
         self.statusBar().showMessage(status_message)
         self.login_screen = LoginScreen(self)
         self.setCentralWidget(self.login_screen)
-        # QueuedConnection: loginSuccess leveres via event-køen, aldri synkront
-        # inne i worker-sloten. Garanterer at setCentralWidget er trygt å kalle.
-        self.login_screen.loginSuccess.connect(
-            self._on_login_success,
-            Qt.ConnectionType.QueuedConnection,
-        )
+        self.login_screen.loginSuccess.connect(self._on_login_success)
 
     def build_ui(self) -> None:
         root = QWidget()
@@ -305,7 +299,6 @@ class OperationsCenterWindow(QMainWindow):
         self._show_login_screen("Kunne ikke koble til – sjekk nett og API, eller logg inn")
 
     def _on_login_success(self, user: dict) -> None:
-        """Kalt via QueuedConnection – alltid trygt å bytte centralWidget her."""
         if not user:
             return
         self.current_user = user
@@ -314,10 +307,16 @@ class OperationsCenterWindow(QMainWindow):
             f"Logget inn som {user.get('email', '')}  •  {user.get('organization_name', '')}"
         )
         self._update_avatar()
-        self._show_welcome_or_dashboard()
+        # Defer setCentralWidget out of the signal delivery stack.
+        # Even a 0ms timer fires in the next event-loop iteration, which is after
+        # _on_worker_success (and all its callers) have fully returned.
+        # Using 50ms gives extra margin for macOS run-loop scheduling.
+        QTimer.singleShot(50, self._show_welcome_or_dashboard)
 
     def _show_welcome_or_dashboard(self) -> None:
-        """Vis alltid velkomstskjerm i appen der bruker velger/lagrer dashboards."""
+        """Vis velkomstskjermen der bruker velger/oppretter dashboards."""
+        if not self.current_user:
+            return  # guard against stale timer callback after logout
         layouts = self.config.layout.get("layouts", [])
         self.welcome_screen = LayoutWelcomeScreen(layouts, self)
         self.setCentralWidget(self.welcome_screen)
