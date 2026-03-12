@@ -92,6 +92,9 @@ class AppConfig:
     })
     fullscreen: bool = False
     api_base_url: str = "https://opsmonitor-alpha.vercel.app"
+    # Organisation API key (replaces manual URL entry in Settings → Konto / API)
+    # Format: opsm_<64 hex chars>  – generated in the /admin portal
+    api_key: str = ""
 
     def to_json(self) -> dict:
         return {
@@ -107,8 +110,9 @@ class AppConfig:
             "branding": self.branding,
             "fullscreen": self.fullscreen,
             "api_base_url": self.api_base_url,
+            "api_key": self.api_key,
         }
-    
+
     @classmethod
     def from_json(cls, data: dict) -> "AppConfig":
         assets = [AssetFile(**a) for a in data.get("assets", [])]
@@ -129,8 +133,9 @@ class AppConfig:
             assets=assets,
             layout=layout,
             branding=branding,
-                fullscreen=data.get("fullscreen", False),
-                api_base_url=data.get("api_base_url", "https://opsmonitor-alpha.vercel.app"),
+            fullscreen=data.get("fullscreen", False),
+            api_base_url=data.get("api_base_url", "https://opsmonitor-alpha.vercel.app"),
+            api_key=data.get("api_key", ""),
         )
 
 

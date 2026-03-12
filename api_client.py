@@ -16,9 +16,18 @@ class NotAuthenticatedError(APIError):
     pass
 
 
+_DEFAULT_BASE = "https://opsmonitor-alpha.vercel.app"
+
+
 def _base_url(config) -> str:
-    url = getattr(config, "api_base_url", None) or "https://opsmonitor-alpha.vercel.app"
+    url = getattr(config, "api_base_url", None) or _DEFAULT_BASE
     return url.rstrip("/")
+
+
+def _api_key(config) -> Optional[str]:
+    """Return the organisation API key if configured."""
+    key = getattr(config, "api_key", "") or ""
+    return key.strip() or None
 
 
 def _get_token(config) -> Optional[str]:
@@ -70,6 +79,11 @@ def request(
         if not token:
             raise NotAuthenticatedError(401, "Ikke innlogget")
         headers["Authorization"] = f"Bearer {token}"
+
+    # Attach organisation API key header when available (org-level auth)
+    api_key = _api_key(config)
+    if api_key:
+        headers["X-API-Key"] = api_key
 
     r = requests.request(method, url, headers=headers, json=json, timeout=15)
     if r.status_code == 401 and require_auth:
@@ -166,6 +180,21 @@ def update_layout_remote(config, layout_id: int, layout_cfg: dict) -> dict:
         "config": layout_cfg,
     }
     return request(config, "PUT", f"/layouts/{layout_id}", json=payload)
+
+
+def list_api_keys(config) -> list[dict]:
+    """List API keys for current org (admin only)."""
+    return request(config, "GET", "/apikeys")
+
+
+def create_api_key(config, name: str) -> dict:
+    """Create a new API key. Returns the key including plaintext once."""
+    return request(config, "POST", "/apikeys", json={"name": name})
+
+
+def revoke_api_key(config, key_id: int) -> None:
+    """Revoke an API key (admin only)."""
+    request(config, "DELETE", f"/apikeys/{key_id}")
 
 
 def logout() -> None:

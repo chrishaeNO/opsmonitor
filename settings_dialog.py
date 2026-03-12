@@ -285,21 +285,84 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-        header = QLabel("API-adresse for OPS Monitor (innlogging og brukere)")
-        header.setObjectName("dialogSectionLabel")
-        layout.addWidget(header)
-        card = QFrame()
-        card.setObjectName("dialogCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 12, 14, 12)
-        card_layout.setSpacing(10)
-        card_layout.addWidget(QLabel("Base URL (f.eks. https://opsmonitor-alpha.vercel.app)"))
+        layout.setSpacing(12)
+
+        # ── API-nøkkel (primary) ──────────────────────────────────────────
+        key_header = QLabel("API-nøkkel (anbefalt)")
+        key_header.setObjectName("dialogSectionLabel")
+        layout.addWidget(key_header)
+
+        key_card = QFrame()
+        key_card.setObjectName("dialogCard")
+        key_layout = QVBoxLayout(key_card)
+        key_layout.setContentsMargins(14, 12, 14, 12)
+        key_layout.setSpacing(8)
+
+        key_desc = QLabel(
+            "Lim inn API-nøkkelen fra admin-portalen (<i>/admin</i> → API-nøkler).\n"
+            "Nøkkelen kobler desktop-appen til riktig organisasjon og server automatisk."
+        )
+        key_desc.setObjectName("welcomeSubtitle")
+        key_desc.setWordWrap(True)
+        key_layout.addWidget(key_desc)
+
+        key_input_row = QHBoxLayout()
+        self.api_key_input = QLineEdit(self.config.api_key)
+        self.api_key_input.setPlaceholderText("opsm_1a2b3c4d…  (hentes fra admin-portalen)")
+        self.api_key_input.setObjectName("dialogInput")
+        self.api_key_input.setMinimumHeight(36)
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        key_input_row.addWidget(self.api_key_input, 1)
+
+        toggle_btn = QPushButton("Vis")
+        toggle_btn.setFixedWidth(52)
+        toggle_btn.setCheckable(True)
+        toggle_btn.toggled.connect(
+            lambda checked: self.api_key_input.setEchoMode(
+                QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+            )
+        )
+        toggle_btn.toggled.connect(lambda checked: toggle_btn.setText("Skjul" if checked else "Vis"))
+        key_input_row.addWidget(toggle_btn)
+        key_layout.addLayout(key_input_row)
+
+        key_hint = QLabel(
+            "Format: <code>opsm_&lt;64 hex-tegn&gt;</code>  —  administreres på "
+            "<a href='https://opsmonitor-alpha.vercel.app/admin' style='color:#60a5fa;'>opsmonitor-alpha.vercel.app/admin</a>"
+        )
+        key_hint.setObjectName("welcomeSubtitle")
+        key_hint.setOpenExternalLinks(True)
+        key_hint.setWordWrap(True)
+        key_layout.addWidget(key_hint)
+
+        layout.addWidget(key_card)
+
+        # ── Base URL (avansert / fallback) ────────────────────────────────
+        url_header = QLabel("Server-URL (avansert)")
+        url_header.setObjectName("dialogSectionLabel")
+        layout.addWidget(url_header)
+
+        url_card = QFrame()
+        url_card.setObjectName("dialogCard")
+        url_layout = QVBoxLayout(url_card)
+        url_layout.setContentsMargins(14, 12, 14, 12)
+        url_layout.setSpacing(8)
+
+        url_desc = QLabel(
+            "Brukes bare hvis du kjører en egendriftet OPS Monitor-backend.\n"
+            "La feltet stå tomt for å bruke standardserveren."
+        )
+        url_desc.setObjectName("welcomeSubtitle")
+        url_desc.setWordWrap(True)
+        url_layout.addWidget(url_desc)
+
         self.api_base_url_input = QLineEdit(self.config.api_base_url)
         self.api_base_url_input.setPlaceholderText("https://opsmonitor-alpha.vercel.app")
         self.api_base_url_input.setObjectName("dialogInput")
-        card_layout.addWidget(self.api_base_url_input)
-        layout.addWidget(card)
+        self.api_base_url_input.setMinimumHeight(36)
+        url_layout.addWidget(self.api_base_url_input)
+
+        layout.addWidget(url_card)
         layout.addStretch()
         return tab
 
@@ -394,6 +457,8 @@ class SettingsDialog(QDialog):
         self.config.branding["logo_primary"] = self.logo_primary_input.text().strip()
         self.config.branding["logo_secondary"] = self.logo_secondary_input.text().strip()
         self.config.layout["title"] = self.layout_title_input.text().strip()
+        if hasattr(self, "api_key_input"):
+            self.config.api_key = self.api_key_input.text().strip()
         if hasattr(self, "api_base_url_input"):
             self.config.api_base_url = self.api_base_url_input.text().strip() or "https://opsmonitor-alpha.vercel.app"
 

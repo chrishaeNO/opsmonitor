@@ -1,0 +1,60 @@
+{
+  "patropp_url": "",
+  "avtropp_url": "",
+  "patropp_sheet": 0,
+  "avtropp_sheet": 0,
+  "theme": "dark",
+  "alarm_sound": true,
+  "columns": {
+    "name": "Navn",
+    "radio": "Sambandsnummer",
+    "team": "Team",
+    "area": "Område",
+    "planned_on": "PlanlagtPåtropp",
+    "planned_off": "PlanlagtAvtropp",
+    "actual_on": "SkannetPåtropp",
+    "actual_off": "Avtropp"
+  },
+  "assets": [],
+  "layout": {
+    "show_sidebar": true,
+    "show_assets": true,
+    "show_log": true,
+    "density": "comfortable",
+    "template": "2x2",
+    "rows": 2,
+    "cols": 2,
+    "slot_assignments": {},
+    "panel_order": [
+      "status",
+      "patropp",
+      "avtropp",
+      "late",
+      "log"
+    ],
+    "title": "OPD Dashboard",
+    "layouts": [
+      {
+        "id": "layout_12ea9a19",
+        "title": "OPD Dashboard",
+        "template": "2x2",
+        "rows": 2,
+        "cols": 2,
+        "slot_assignments": {
+          "slot_0": "patropp",
+          "slot_1": "avtropp",
+          "slot_2": "late"
+        },
+        "remote_id": 1,
+        "header_panel_id": "header_full"
+      }
+    ],
+    "active_layout_id": "layout_12ea9a19"
+  },
+  "branding": {
+    "logo_primary": "",
+    "logo_secondary": ""
+  },
+  "fullscreen": false,
+  "api_base_url": "https://opsmonitor-alpha.vercel.app"
+}

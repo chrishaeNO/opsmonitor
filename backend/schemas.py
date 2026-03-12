@@ -90,3 +90,26 @@ class LayoutCreate(BaseModel):
 class LayoutUpdate(BaseModel):
     name: Optional[str] = None
     config: Optional[LayoutConfig] = None
+
+
+# ── API Keys ─────────────────────────────────────────────────────────────────
+
+class APIKeyCreate(BaseModel):
+    name: str
+
+
+class APIKeyOut(BaseModel):
+    id: int
+    name: str
+    key_prefix: str
+    revoked: bool
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class APIKeyCreated(APIKeyOut):
+    """Returned once on creation – includes the plaintext key."""
+    key: str
