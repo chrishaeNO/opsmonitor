@@ -26,8 +26,9 @@ _AUTH_FAIL = "Ugyldig e-post eller passord"
 
 
 def _check_lockout(user: models_db.User) -> None:
-    if user.locked_until and datetime.utcnow() < user.locked_until:
-        remaining = int((user.locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+    locked_until = getattr(user, "locked_until", None)
+    if locked_until and datetime.utcnow() < locked_until:
+        remaining = int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"For mange mislykkede forsøk – prøv igjen om {remaining} min",
@@ -36,7 +37,8 @@ def _check_lockout(user: models_db.User) -> None:
 
 def _record_failed(db: Session, user: models_db.User) -> None:
     try:
-        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+        current = getattr(user, "failed_login_attempts", None) or 0
+        user.failed_login_attempts = current + 1
         if user.failed_login_attempts >= _MAX_ATTEMPTS:
             user.locked_until = datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)
         db.commit()
