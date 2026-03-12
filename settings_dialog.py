@@ -272,9 +272,9 @@ class SettingsDialog(QDialog):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 12, 14, 12)
         card_layout.setSpacing(10)
-        card_layout.addWidget(QLabel("Base URL (f.eks. http://127.0.0.1:8000)"))
+        card_layout.addWidget(QLabel("Base URL (f.eks. https://opsmonitor-alpha.vercel.app)"))
         self.api_base_url_input = QLineEdit(self.config.api_base_url)
-        self.api_base_url_input.setPlaceholderText("http://127.0.0.1:8000")
+        self.api_base_url_input.setPlaceholderText("https://opsmonitor-alpha.vercel.app")
         self.api_base_url_input.setObjectName("dialogInput")
         card_layout.addWidget(self.api_base_url_input)
         layout.addWidget(card)
@@ -373,7 +373,7 @@ class SettingsDialog(QDialog):
         self.config.branding["logo_secondary"] = self.logo_secondary_input.text().strip()
         self.config.layout["title"] = self.layout_title_input.text().strip()
         if hasattr(self, "api_base_url_input"):
-            self.config.api_base_url = self.api_base_url_input.text().strip() or "http://127.0.0.1:8000"
+            self.config.api_base_url = self.api_base_url_input.text().strip() or "https://opsmonitor-alpha.vercel.app"
 
     def auto_map_from_patropp(self) -> None:
         self._auto_map(self.patropp_url.text().strip(), self.patropp_sheet.value())

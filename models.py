@@ -91,7 +91,7 @@ class AppConfig:
         "logo_secondary": "",
     })
     fullscreen: bool = False
-    api_base_url: str = "http://127.0.0.1:8000"
+    api_base_url: str = "https://opsmonitor-alpha.vercel.app"
 
     def to_json(self) -> dict:
         return {
@@ -129,8 +129,8 @@ class AppConfig:
             assets=assets,
             layout=layout,
             branding=branding,
-            fullscreen=data.get("fullscreen", False),
-            api_base_url=data.get("api_base_url", "http://127.0.0.1:8000"),
+                fullscreen=data.get("fullscreen", False),
+                api_base_url=data.get("api_base_url", "https://opsmonitor-alpha.vercel.app"),
         )
 
 

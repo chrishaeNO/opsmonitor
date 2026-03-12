@@ -17,7 +17,7 @@ class NotAuthenticatedError(APIError):
 
 
 def _base_url(config) -> str:
-    url = getattr(config, "api_base_url", None) or "http://127.0.0.1:8000"
+    url = getattr(config, "api_base_url", None) or "https://opsmonitor-alpha.vercel.app"
     return url.rstrip("/")
 
 
