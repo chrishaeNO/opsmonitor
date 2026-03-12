@@ -1,17 +1,22 @@
 """Pydantic schemas for API request/response."""
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, constr
+
+
+# Bcrypt støtter maks 72 byte passord. Vi validerer på schema-nivå
+# slik at APIet gir en ryddig 422-feil i stedet for 500.
+PasswordStr = constr(min_length=8, max_length=72)
 
 
 class RegisterRequest(BaseModel):
     org_name: str
     email: EmailStr
-    password: str
+    password: PasswordStr
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: PasswordStr
 
 
 class TokenResponse(BaseModel):
@@ -39,7 +44,7 @@ class UserResponse(BaseModel):
 
 class UserCreateRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: PasswordStr
     role: str = "user"
 
 
