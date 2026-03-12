@@ -71,16 +71,17 @@ class OperationsCenterWindow(QMainWindow):
         self.net_timer.start(10000)
 
         self.current_user: dict | None = None
+        self._child_window: "OperationsCenterWindow | None" = None
         self.setStyleSheet(get_stylesheet())
 
         if initial_user:
-            # Kalt etter vellykket innlogging – hopp rett til velkomstskjermen
+            # Kalt etter vellykket innlogging – hopp rett til velkomstskjermen.
+            # setCentralWidget fra __init__ er alltid trygt (ingen signal-stack).
             self.current_user = initial_user
             set_cached_user(initial_user)
             self.statusBar().showMessage(
                 f"Logget inn som {initial_user.get('email', '')}  •  {initial_user.get('organization_name', '')}"
             )
-            # setCentralWidget fra __init__ er alltid trygt – ingen signal-stack
             self._show_welcome_or_dashboard()
         else:
             self.statusBar().showMessage("")
@@ -309,15 +310,19 @@ class OperationsCenterWindow(QMainWindow):
     def _on_login_success(self, user: dict) -> None:
         if not user:
             return
-        # Åpne et nytt, fersk vindu som starter direkte på velkomstskjermen.
-        # Dette omgår alle Qt setCentralWidget-livssyklusproblemer ved å aldri
-        # forsøke å bytte sentralwidget inne i en signal-handler.
         geo = self.geometry()
         new_win = OperationsCenterWindow(initial_user=user)
         new_win.setGeometry(geo)
         new_win.show()
-        # Lukk det gamle vinduet etter at det nye er vist
-        QTimer.singleShot(150, self.close)
+        # Lagre referanse til det nye vinduet – forhindrer at Python-GC sletter
+        # C++-objektet når den lokale variabelen går ut av scope.
+        self._child_window = new_win
+        # Stopp bakgrunnstimere på det gamle vinduet
+        self.net_timer.stop()
+        self.timer.stop()
+        # IKKE close() – det utløser Qt sin "ingen synlige vinduer → avslutt app"
+        # sjekk. hide() er trygt og holder applikasjonen i live.
+        self.hide()
 
     def _show_welcome_or_dashboard(self) -> None:
         """Vis velkomstskjermen der bruker velger/oppretter dashboards."""
