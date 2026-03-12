@@ -37,15 +37,13 @@ APP_NAME = "OPS Monitor"
 
 
 class OperationsCenterWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, initial_user: dict | None = None) -> None:
         super().__init__()
         self.config: AppConfig = load_config()
         self.records: List[PersonnelRecord] = []
         self._ensure_layout_store()
         self._drag_pos: QPoint | None = None
-        # Bruk standard OS-vindusramme.
         self.setWindowTitle(APP_NAME)
-        # Sørg for at vinduet faktisk kan resizes fritt
         self.setMinimumSize(900, 600)
 
         # Startstørrelse tilpasses skjermens tilgjengelige areal
@@ -73,10 +71,20 @@ class OperationsCenterWindow(QMainWindow):
         self.net_timer.start(10000)
 
         self.current_user: dict | None = None
-        # Bruk standard OS-vindu, men med vår moderne app-stil.
         self.setStyleSheet(get_stylesheet())
-        self.statusBar().showMessage("")
-        self._ensure_logged_in()
+
+        if initial_user:
+            # Kalt etter vellykket innlogging – hopp rett til velkomstskjermen
+            self.current_user = initial_user
+            set_cached_user(initial_user)
+            self.statusBar().showMessage(
+                f"Logget inn som {initial_user.get('email', '')}  •  {initial_user.get('organization_name', '')}"
+            )
+            # setCentralWidget fra __init__ er alltid trygt – ingen signal-stack
+            self._show_welcome_or_dashboard()
+        else:
+            self.statusBar().showMessage("")
+            self._ensure_logged_in()
 
     def _show_login_screen(self, status_message: str = "Logg inn for å bruke OPS Monitor") -> None:
         """Vis en ny login-skjerm med ren signal-kobling."""
@@ -301,22 +309,18 @@ class OperationsCenterWindow(QMainWindow):
     def _on_login_success(self, user: dict) -> None:
         if not user:
             return
-        self.current_user = user
-        set_cached_user(user)
-        self.statusBar().showMessage(
-            f"Logget inn som {user.get('email', '')}  •  {user.get('organization_name', '')}"
-        )
-        self._update_avatar()
-        # Defer setCentralWidget out of the signal delivery stack.
-        # Even a 0ms timer fires in the next event-loop iteration, which is after
-        # _on_worker_success (and all its callers) have fully returned.
-        # Using 50ms gives extra margin for macOS run-loop scheduling.
-        QTimer.singleShot(50, self._show_welcome_or_dashboard)
+        # Åpne et nytt, fersk vindu som starter direkte på velkomstskjermen.
+        # Dette omgår alle Qt setCentralWidget-livssyklusproblemer ved å aldri
+        # forsøke å bytte sentralwidget inne i en signal-handler.
+        geo = self.geometry()
+        new_win = OperationsCenterWindow(initial_user=user)
+        new_win.setGeometry(geo)
+        new_win.show()
+        # Lukk det gamle vinduet etter at det nye er vist
+        QTimer.singleShot(150, self.close)
 
     def _show_welcome_or_dashboard(self) -> None:
         """Vis velkomstskjermen der bruker velger/oppretter dashboards."""
-        if not self.current_user:
-            return  # guard against stale timer callback after logout
         layouts = self.config.layout.get("layouts", [])
         self.welcome_screen = LayoutWelcomeScreen(layouts, self)
         self.setCentralWidget(self.welcome_screen)
@@ -926,7 +930,7 @@ class OperationsCenterWindow(QMainWindow):
         app = QApplication.instance()
         if app is None:
             return
-        win = OperationsCenterWindow()
+        win = OperationsCenterWindow(initial_user=self.current_user)
         win.show()
 
     def _do_logout(self) -> None:
