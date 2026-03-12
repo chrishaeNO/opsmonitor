@@ -1,0 +1,68 @@
+{
+  "patropp_url": "/Users/christianhae/Downloads/HKS2026-Marka.xlsx",
+  "avtropp_url": "",
+  "patropp_sheet": 0,
+  "avtropp_sheet": 0,
+  "theme": "dark",
+  "alarm_sound": true,
+  "columns": {
+    "name": "Navn",
+    "radio": "Samband",
+    "team": "",
+    "area": "Område",
+    "planned_on": "Tid start",
+    "planned_off": "Tid slutt",
+    "actual_on": "",
+    "actual_off": ""
+  },
+  "assets": [],
+  "layout": {
+    "show_sidebar": true,
+    "show_assets": true,
+    "show_log": true,
+    "density": "comfortable",
+    "template": "3x3",
+    "rows": 3,
+    "cols": 3,
+    "slot_assignments": {
+      "slot_0": "avtropp",
+      "slot_1": "late",
+      "slot_3": "patropp"
+    },
+    "panel_order": [
+      "patropp",
+      "avtropp",
+      "late",
+      "log",
+      "status"
+    ],
+    "title": "HKS MARKA 2026",
+    "layouts": [
+      {
+        "id": "layout_2e8ccb7e",
+        "title": "HKS MARKA 2026",
+        "template": "2x2+1",
+        "rows": 2,
+        "cols": 3,
+        "slot_assignments": {
+          "slot_0": "patropp",
+          "slot_1": "avtropp"
+        }
+      },
+      {
+        "id": "layout_d98f07cd",
+        "title": "Test",
+        "template": "2x2+1",
+        "rows": 2,
+        "cols": 3,
+        "slot_assignments": {}
+      }
+    ],
+    "active_layout_id": "layout_d98f07cd"
+  },
+  "branding": {
+    "logo_primary": "/Users/christianhae/Documents/ChatGPT Image 22. feb. 2026, 11_08_54.png",
+    "logo_secondary": ""
+  },
+  "fullscreen": false
+}
