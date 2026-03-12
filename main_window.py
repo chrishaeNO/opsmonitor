@@ -43,6 +43,7 @@ class OperationsCenterWindow(QMainWindow):
         self.records: List[PersonnelRecord] = []
         self._ensure_layout_store()
         self._drag_pos: QPoint | None = None
+        # Bruk standard OS-vindusramme.
         self.setWindowTitle(APP_NAME)
         # Sørg for at vinduet faktisk kan resizes fritt
         self.setMinimumSize(900, 600)
@@ -76,6 +77,20 @@ class OperationsCenterWindow(QMainWindow):
         self.setStyleSheet(get_stylesheet())
         self.statusBar().showMessage("")
         self._ensure_logged_in()
+
+    def _show_login_screen(self, status_message: str = "Logg inn for å bruke OPS Monitor") -> None:
+        """Vis en ny login-skjerm. Bruker QueuedConnection så setCentralWidget
+        alltid kjøres mellom event-loop-iterasjoner – aldri inne i en slot-stack."""
+        self.current_user = None
+        self.statusBar().showMessage(status_message)
+        self.login_screen = LoginScreen(self)
+        self.setCentralWidget(self.login_screen)
+        # QueuedConnection: loginSuccess leveres via event-køen, aldri synkront
+        # inne i worker-sloten. Garanterer at setCentralWidget er trygt å kalle.
+        self.login_screen.loginSuccess.connect(
+            self._on_login_success,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
     def build_ui(self) -> None:
         root = QWidget()
@@ -143,15 +158,6 @@ class OperationsCenterWindow(QMainWindow):
         self.avatar_label.mousePressEvent = self._avatar_clicked  # type: ignore[assignment]
         tl.addWidget(self.avatar_label)
         self._update_avatar()
-
-        # Egendefinerte vindusknapper (minimer / lukk) for frameless-vinduet
-        self.minimize_btn = ToolbarButton("–", "minus")
-        self.minimize_btn.clicked.connect(self.showMinimized)
-        tl.addWidget(self.minimize_btn)
-
-        self.close_btn = ToolbarButton("✕", "close")
-        self.close_btn.clicked.connect(self.close)
-        tl.addWidget(self.close_btn)
 
         ml.addWidget(topbar)
 
@@ -282,11 +288,7 @@ class OperationsCenterWindow(QMainWindow):
                 self._show_welcome_or_dashboard()
                 return
         except NotAuthenticatedError:
-            self.current_user = None
-            self.statusBar().showMessage("Logg inn for å bruke OPS Monitor")
-            self.login_screen = LoginScreen(self)
-            self.setCentralWidget(self.login_screen)
-            self.login_screen.loginSuccess.connect(self._on_login_success)
+            self._show_login_screen("Logg inn for å bruke OPS Monitor")
             return
         except Exception:
             pass
@@ -300,30 +302,23 @@ class OperationsCenterWindow(QMainWindow):
             self._update_avatar()
             self._show_welcome_or_dashboard()
             return
-        self.current_user = None
-        self.statusBar().showMessage("Kunne ikke koble til – sjekk nett og API, eller logg inn")
-        self.login_screen = LoginScreen(self)
-        self.setCentralWidget(self.login_screen)
-        self.login_screen.loginSuccess.connect(self._on_login_success)
+        self._show_login_screen("Kunne ikke koble til – sjekk nett og API, eller logg inn")
 
     def _on_login_success(self, user: dict) -> None:
+        """Kalt via QueuedConnection – alltid trygt å bytte centralWidget her."""
+        if not user:
+            return
         self.current_user = user
         set_cached_user(user)
-        self.statusBar().showMessage(f"Logget inn som {user.get('email', '')}  •  {user.get('organization_name', '')}")
+        self.statusBar().showMessage(
+            f"Logget inn som {user.get('email', '')}  •  {user.get('organization_name', '')}"
+        )
         self._update_avatar()
         self._show_welcome_or_dashboard()
 
     def _show_welcome_or_dashboard(self) -> None:
-        """Vis velkomstskjerm i appen, eller gå rett til dashboard hvis ingen layouts finnes."""
+        """Vis alltid velkomstskjerm i appen der bruker velger/lagrer dashboards."""
         layouts = self.config.layout.get("layouts", [])
-        if not layouts:
-            # Ingen lagrede layouts – gå rett til et tomt standarddashboard.
-            self.build_ui()
-            self.statusBar().showMessage("Klar")
-            self.refresh_data()
-            self.timer.start(15000)
-            return
-
         self.welcome_screen = LayoutWelcomeScreen(layouts, self)
         self.setCentralWidget(self.welcome_screen)
         self.welcome_screen.layoutSelected.connect(self._on_layout_selected)
@@ -414,18 +409,8 @@ class OperationsCenterWindow(QMainWindow):
         )
 
     def eventFilter(self, obj, event):  # noqa: N802
-        # Gjør det mulig å dra vinduet ved å klikke/holde på den egendefinerte toppbaren.
-        if obj is getattr(self, "topbar", None):
-            if event.type() == event.Type.MouseButtonPress and isinstance(event, QMouseEvent):
-                if event.button() == Qt.MouseButton.LeftButton:
-                    self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                    return True
-            elif event.type() == event.Type.MouseMove and isinstance(event, QMouseEvent):
-                if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
-                    self.move(event.globalPosition().toPoint() - self._drag_pos)
-                    return True
-            elif event.type() == event.Type.MouseButtonRelease:
-                self._drag_pos = None
+        # OS håndterer nå dragging / maksimering via standard tittel-linje;
+        # vi bruker ikke lenger topbaren som window chrome.
         return super().eventFilter(obj, event)
 
     def _avatar_clicked(self, event: QMouseEvent) -> None:
@@ -433,6 +418,31 @@ class OperationsCenterWindow(QMainWindow):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         menu = QMenu(self)
+        menu.setStyleSheet(
+            """
+            QMenu {
+                background-color: #020617;
+                border: 1px solid #1f2937;
+                border-radius: 8px;
+                padding: 4px 0;
+            }
+            QMenu::item {
+                padding: 6px 14px;
+                border-radius: 6px;
+                color: #e5e7eb;
+                font-size: 12px;
+            }
+            QMenu::item:selected {
+                background-color: #1d4ed8;
+                color: white;
+            }
+            QMenu::separator {
+                height: 1px;
+                margin: 4px 10px;
+                background: #111827;
+            }
+            """
+        )
         email = (self.current_user or {}).get("email", "")
         org = (self.current_user or {}).get("organization_name", "")
         header = menu.addAction(email or "Ingen bruker")
@@ -445,7 +455,9 @@ class OperationsCenterWindow(QMainWindow):
         if self.current_user and self.current_user.get("role") == "admin":
             users_action = menu.addAction("Administrer brukere")
         logout_action = menu.addAction("Logg ut")
-        chosen = menu.exec(self.avatar_label.mapToGlobal(event.pos()))
+        # Åpne menyen under avataren, ikke over.
+        global_pos = self.avatar_label.mapToGlobal(self.avatar_label.rect().bottomLeft())
+        chosen = menu.exec(global_pos)
         if chosen is users_action:
             self._open_users_dialog()
         elif chosen is logout_action:
@@ -919,14 +931,18 @@ class OperationsCenterWindow(QMainWindow):
         win.show()
 
     def _do_logout(self) -> None:
-        api_logout()
+        """Logg brukeren robust ut av klienten og vis innloggingsskjerm."""
+        api_logout()  # sletter tokens + offline-cache på disk
         self.current_user = None
         if hasattr(self, "timer") and self.timer.isActive():
             self.timer.stop()
         if hasattr(self, "modules_drawer"):
             self.modules_drawer.setVisible(False)
+        self._update_avatar()
         self.statusBar().showMessage("Logg inn for å bruke OPS Monitor")
-        self._ensure_logged_in()
+
+        # Vis en helt ny innloggingsskjerm uten å forsøke automatisk /me-kall.
+        self._show_login_screen("Logg inn for å bruke OPS Monitor")
 
     def deviation_text(self, actual, planned) -> str:
         if not planned:

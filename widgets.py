@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QMimeData, Qt, QSize, Signal, QPoint
+from PySide6.QtCore import QMimeData, Qt, QSize, Signal, QPoint, QObject, QThread, QTimer
 from PySide6.QtGui import QColor, QDrag, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -347,54 +347,131 @@ class TemplateRow(QFrame):
         super().mousePressEvent(event)
 
 
+class _LoginWorker(QObject):
+    """Runs the blocking login API call in a background thread."""
+    finished = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, config, email: str, password: str) -> None:
+        super().__init__()
+        self._config = config
+        self._email = email
+        self._password = password
+
+    def run(self) -> None:
+        from api_client import login, APIError, NotAuthenticatedError
+        import requests as _requests
+        try:
+            user = login(self._config, self._email, self._password)
+            self.finished.emit(user)
+        except NotAuthenticatedError:
+            self.failed.emit("Ugyldig e-post eller passord")
+        except APIError as exc:
+            self.failed.emit((exc.detail or "Innlogging feilet")[:120])
+        except _requests.RequestException:
+            self.failed.emit("Kunne ikke koble til – sjekk nett/API")
+        except Exception:
+            self.failed.emit("Innlogging feilet uventet – prøv igjen")
+
+
 class LoginScreen(QWidget):
     """Innloggingsskjerm – kun e-post og passord (ingen registrering i klienten)."""
-    loginSuccess = Signal(dict)  # user info from /me
+    loginSuccess = Signal(dict)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("welcomeScreen")
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.addStretch()
+
         row = QHBoxLayout()
         row.addStretch()
+
         card = QFrame()
         card.setObjectName("welcomeCard")
-        card.setFixedWidth(400)
+        card.setFixedWidth(420)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(16)
+        layout.setContentsMargins(36, 32, 36, 32)
+        layout.setSpacing(14)
+
         title = QLabel("OPS Monitor")
         title.setObjectName("welcomeTitle")
         layout.addWidget(title)
+
         sub = QLabel("Logg inn for å fortsette")
         sub.setObjectName("welcomeSubtitle")
         layout.addWidget(sub)
+
+        layout.addSpacing(6)
+
         layout.addWidget(QLabel("E-post"))
         self.email_input = QLineEdit()
         self.email_input.setPlaceholderText("din@epost.no")
         self.email_input.setObjectName("dialogInput")
+        self.email_input.returnPressed.connect(self._do_login)
         layout.addWidget(self.email_input)
+
         layout.addWidget(QLabel("Passord"))
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setPlaceholderText("••••••••")
         self.password_input.setObjectName("dialogInput")
+        self.password_input.returnPressed.connect(self._do_login)
         layout.addWidget(self.password_input)
+
         self.error_label = QLabel("")
         self.error_label.setObjectName("welcomeSubtitle")
-        self.error_label.setStyleSheet("color: #f97373;")
+        self.error_label.setStyleSheet("color: #f97373; min-height: 18px;")
+        self.error_label.setWordWrap(True)
         layout.addWidget(self.error_label)
-        btn = QPushButton("Logg inn")
-        btn.setObjectName("welcomeOpenButton")
-        btn.clicked.connect(self._do_login)
-        layout.addWidget(btn)
+
+        self.login_button = QPushButton("Logg inn")
+        self.login_button.setObjectName("welcomeOpenButton")
+        self.login_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.login_button.clicked.connect(self._do_login)
+        layout.addWidget(self.login_button)
+
+        # Loading indicator – hidden until login is in progress
+        self._loader_label = QLabel("")
+        self._loader_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loader_label.setObjectName("welcomeSubtitle")
+        self._loader_label.setStyleSheet("color: #94a3b8; font-size: 12px; min-height: 20px;")
+        self._loader_label.hide()
+        layout.addWidget(self._loader_label)
+
         row.addWidget(card)
         row.addStretch()
         root.addLayout(row)
         root.addStretch()
-        self._register_dialog = None
+
+        # Animated dots timer
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(420)
+        self._dot_timer.timeout.connect(self._tick_loader)
+        self._dot_count = 0
+
+        self._thread: QThread | None = None
+        self._worker: _LoginWorker | None = None
+
+    def _set_loading(self, loading: bool) -> None:
+        self.email_input.setEnabled(not loading)
+        self.password_input.setEnabled(not loading)
+        self.login_button.setEnabled(not loading)
+        self.login_button.setText("Logger inn…" if loading else "Logg inn")
+        if loading:
+            self._dot_count = 0
+            self._loader_label.setText("Kobler til server")
+            self._loader_label.show()
+            self._dot_timer.start()
+        else:
+            self._dot_timer.stop()
+            self._loader_label.hide()
+
+    def _tick_loader(self) -> None:
+        self._dot_count = (self._dot_count + 1) % 4
+        self._loader_label.setText("Kobler til server" + ("·" * self._dot_count))
 
     def _do_login(self) -> None:
         self.error_label.setText("")
@@ -403,27 +480,42 @@ class LoginScreen(QWidget):
         if not email or not password:
             self.error_label.setText("Fyll inn e-post og passord")
             return
-        try:
-            from api_client import login, APIError, NotAuthenticatedError
-            config = self.window().config if hasattr(self.window(), "config") else None
-            if not config:
-                self.error_label.setText("Konfigurasjon mangler")
-                return
-            user = login(config, email, password)
-            self.loginSuccess.emit(user)
-        except Exception as e:
-            from api_client import NotAuthenticatedError, APIError
-            if isinstance(e, NotAuthenticatedError):
-                self.error_label.setText("Ugyldig e-post eller passord")
-            elif isinstance(e, APIError):
-                self.error_label.setText(e.detail[:80])
-            else:
-                self.error_label.setText("Kunne ikke koble til – sjekk at API kjører")
+
+        config = self.window().config if hasattr(self.window(), "config") else None
+        if not config:
+            self.error_label.setText("Konfigurasjon mangler")
+            return
+
+        # Prevent double-submit while a request is running
+        if self._thread is not None and self._thread.isRunning():
+            return
+
+        self._set_loading(True)
+
+        self._thread = QThread(self)
+        self._worker = _LoginWorker(config, email, password)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_worker_success)
+        self._worker.failed.connect(self._on_worker_error)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.failed.connect(self._thread.quit)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.start()
+
+    def _on_worker_success(self, user: dict) -> None:
+        self._set_loading(False)
+        self._thread = None
+        self._worker = None
+        self.loginSuccess.emit(user)
+
+    def _on_worker_error(self, msg: str) -> None:
+        self._set_loading(False)
+        self._thread = None
+        self._worker = None
+        self.error_label.setText(msg)
 
     def _open_register(self) -> None:
-        # Registrering av bedrifter skal kun skje via egen admin-løsning på serveren,
-        # ikke fra desktop-klienten. Behold metoden for å unngå gamle koblinger,
-        # men ikke gjør noe her.
         self.error_label.setText("Registrering gjøres via admin-portalen, ikke i klienten.")
 
 
@@ -694,7 +786,8 @@ class CreateLayoutDialog(QDialog):
         presets = {
             "1x1": (1, 1),
             "2x2": (2, 2),
-            "2x2+1": (2, 3),  # to rader, tre kolonner – spesialhåndteres i LayoutCanvas
+            "2x2+1": (2, 3),   # to rader, tre kolonner – spesialhåndteres i LayoutCanvas
+            "3top+1": (2, 3),  # tre bokser øverst, én full bredde under
             "3x3": (3, 3),
             "4x4": (4, 4),
             "5x5": (5, 5),
@@ -1016,6 +1109,19 @@ class LayoutCanvas(QWidget):
             self.grid.addWidget(self.slots[3], 1, 1)
             # indeks 4: høy rute som dekker begge rader
             self.grid.addWidget(self.slots[4], 0, 2, 2, 1)
+        # Spesial-case for 3top+1: tre like bokser øverst og én som dekker hele bredden under
+        elif template == "3top+1" and self.rows == 2 and self.cols == 3:
+            total_slots = 4
+            for i in range(total_slots):
+                slot = PanelDropSlot(i)
+                slot.panelDropped.connect(self.handle_drop)
+                self.slots.append(slot)
+            # indeks 0–2: tre bokser øverst
+            self.grid.addWidget(self.slots[0], 0, 0)
+            self.grid.addWidget(self.slots[1], 0, 1)
+            self.grid.addWidget(self.slots[2], 0, 2)
+            # indeks 3: én rute som dekker hele bredden under
+            self.grid.addWidget(self.slots[3], 1, 0, 1, 3)
         else:
             for i in range(self.rows * self.cols):
                 slot = PanelDropSlot(i)
