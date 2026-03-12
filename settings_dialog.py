@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -44,6 +45,9 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Innstillinger")
         self.resize(880, 640)
         self.setObjectName("settingsDialog")
+        # Frameless, avrundet dialog med custom chrome
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self._drag_pos: QPoint | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 20)
@@ -54,6 +58,10 @@ class SettingsDialog(QDialog):
         title_label.setObjectName("dialogTitle")
         header.addWidget(title_label)
         header.addStretch()
+        # Tillat dra i header for å flytte dialogen
+        self.header_widget = QLabel()  # bare et anker for event-filter
+        self.header_widget.setVisible(False)
+        root.addWidget(self.header_widget)
         root.addLayout(header)
 
         card = QWidget()
@@ -81,6 +89,20 @@ class SettingsDialog(QDialog):
         footer.addWidget(cancel_btn)
         footer.addWidget(save_btn)
         root.addLayout(footer)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def _build_sources_tab(self) -> QWidget:
         tab = QWidget()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QMimeData, Qt, QSize, Signal
+from PySide6.QtCore import QMimeData, Qt, QSize, Signal, QPoint
 from PySide6.QtGui import QColor, QDrag, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -432,6 +432,8 @@ class RegisterDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Registrer bedrift")
         self.setObjectName("settingsDialog")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self._drag_pos: QPoint | None = None
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
         root.addWidget(QLabel("Bedriftsnavn"))
@@ -458,6 +460,20 @@ class RegisterDialog(QDialog):
         row.addWidget(ok)
         root.addLayout(row)
 
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
     def org_name(self) -> str:
         return self.org_input.text().strip()
 
@@ -477,6 +493,8 @@ class UsersDialog(QDialog):
         self.setWindowTitle("Brukere i organisasjonen")
         self.setObjectName("settingsDialog")
         self.resize(500, 400)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self._drag_pos: QPoint | None = None
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
         root.addWidget(QLabel("Brukere (kun for admin)"))
@@ -499,6 +517,20 @@ class UsersDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
         self._load_users()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def _load_users(self) -> None:
         try:

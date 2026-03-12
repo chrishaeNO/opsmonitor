@@ -5,7 +5,7 @@ from typing import List
 import socket
 import json
 
-from PySide6.QtCore import QSize, QTimer, Qt
+from PySide6.QtCore import QSize, QTimer, Qt, QPoint
 from PySide6.QtGui import QPixmap, QGuiApplication, QIcon, QMouseEvent
 import uuid
 
@@ -42,7 +42,7 @@ class OperationsCenterWindow(QMainWindow):
         self.config: AppConfig = load_config()
         self.records: List[PersonnelRecord] = []
         self._ensure_layout_store()
-        self.tab_bar: QTabBar | None = None
+        self._drag_pos: QPoint | None = None
         self.setWindowTitle(APP_NAME)
         # Sørg for at vinduet faktisk kan resizes fritt
         self.setMinimumSize(900, 600)
@@ -72,12 +72,14 @@ class OperationsCenterWindow(QMainWindow):
         self.net_timer.start(10000)
 
         self.current_user: dict | None = None
+        # Bruk standard OS-vindu, men med vår moderne app-stil.
         self.setStyleSheet(get_stylesheet())
         self.statusBar().showMessage("")
         self._ensure_logged_in()
 
     def build_ui(self) -> None:
         root = QWidget()
+        root.setObjectName("windowRoot")
         self.setCentralWidget(root)
         shell = QHBoxLayout(root)
         shell.setContentsMargins(0, 0, 0, 0)
@@ -94,6 +96,9 @@ class OperationsCenterWindow(QMainWindow):
         tl = QHBoxLayout(topbar)
         tl.setContentsMargins(14, 10, 14, 10)
         tl.setSpacing(10)
+        # Bruk topbar som egendefinert tittel-linje (for drag).
+        self.topbar = topbar
+        self.topbar.installEventFilter(self)
 
         self.logo_primary = QLabel()
         self.logo_primary.setObjectName("brandLogo")
@@ -128,16 +133,25 @@ class OperationsCenterWindow(QMainWindow):
         settings_btn.clicked.connect(self.open_settings_dialog)
         tl.addWidget(settings_btn)
 
-        # Global konto-avatar oppe til høyre
+        # Global konto-"chip" med avatar + navn/e-post
         self.avatar_label = QLabel()
         self.avatar_label.setObjectName("userAvatar")
-        self.avatar_label.setFixedSize(32, 32)
+        self.avatar_label.setFixedSize(28, 28)
         self.avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.avatar_label.setCursor(Qt.CursorShape.PointingHandCursor)
         # Reroute klikkhendelse til egen handler for konto-meny
         self.avatar_label.mousePressEvent = self._avatar_clicked  # type: ignore[assignment]
         tl.addWidget(self.avatar_label)
         self._update_avatar()
+
+        # Egendefinerte vindusknapper (minimer / lukk) for frameless-vinduet
+        self.minimize_btn = ToolbarButton("–", "minus")
+        self.minimize_btn.clicked.connect(self.showMinimized)
+        tl.addWidget(self.minimize_btn)
+
+        self.close_btn = ToolbarButton("✕", "close")
+        self.close_btn.clicked.connect(self.close)
+        tl.addWidget(self.close_btn)
 
         ml.addWidget(topbar)
 
@@ -376,21 +390,57 @@ class OperationsCenterWindow(QMainWindow):
             return
         if not self.current_user:
             self.avatar_label.setText("")
+            self.avatar_label.setToolTip("")
             self.avatar_label.setStyleSheet("")
             return
         email = self.current_user.get("email", "") or ""
+        name = self.current_user.get("organization_name", "") or ""
         initial = (email[0].upper() if email else "?")
         self.avatar_label.setText(initial)
-        # Enkel sirkelavatar via stylesheet
+        tooltip = email
+        if name:
+            tooltip = f"{name} – {email}"
+        self.avatar_label.setToolTip(tooltip)
+        # Moderne, kompakt avatar-chip
         self.avatar_label.setStyleSheet(
-            "border-radius: 16px; background-color: #1d4ed8; color: white; font-weight: 600;"
+            """
+            #userAvatar {
+                border-radius: 14px;
+                background-color: #1d4ed8;
+                color: white;
+                font-weight: 600;
+            }
+            """
         )
 
+    def eventFilter(self, obj, event):  # noqa: N802
+        # Gjør det mulig å dra vinduet ved å klikke/holde på den egendefinerte toppbaren.
+        if obj is getattr(self, "topbar", None):
+            if event.type() == event.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                    return True
+            elif event.type() == event.Type.MouseMove and isinstance(event, QMouseEvent):
+                if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
+                    self.move(event.globalPosition().toPoint() - self._drag_pos)
+                    return True
+            elif event.type() == event.Type.MouseButtonRelease:
+                self._drag_pos = None
+        return super().eventFilter(obj, event)
+
     def _avatar_clicked(self, event: QMouseEvent) -> None:
-        """Vis en liten konto-meny når avatar-klikkes."""
+        """Vis en profesjonell konto-meny når avatar-klikkes."""
         if event.button() != Qt.MouseButton.LeftButton:
             return
         menu = QMenu(self)
+        email = (self.current_user or {}).get("email", "")
+        org = (self.current_user or {}).get("organization_name", "")
+        header = menu.addAction(email or "Ingen bruker")
+        header.setEnabled(False)
+        if org:
+            org_action = menu.addAction(org)
+            org_action.setEnabled(False)
+        menu.addSeparator()
         users_action = None
         if self.current_user and self.current_user.get("role") == "admin":
             users_action = menu.addAction("Administrer brukere")
@@ -534,6 +584,7 @@ class OperationsCenterWindow(QMainWindow):
     def open_log_dialog(self) -> None:
         dlg = QDialog(self)
         dlg.setWindowTitle("Hendelseslogg")
+        dlg.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(10)
