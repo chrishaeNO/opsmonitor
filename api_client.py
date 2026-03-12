@@ -143,6 +143,31 @@ def delete_user(config, user_id: int) -> None:
     request(config, "DELETE", f"/users/{user_id}")
 
 
+def list_layouts(config) -> list[dict]:
+    """List layouts stored for the current organization."""
+    return request(config, "GET", "/layouts")
+
+
+def create_layout_remote(config, layout_cfg: dict) -> dict:
+    """Create a remote layout entry for current org."""
+    name = layout_cfg.get("title") or "Dashboard"
+    payload = {
+        "name": name,
+        "config": layout_cfg,
+    }
+    return request(config, "POST", "/layouts", json=payload)
+
+
+def update_layout_remote(config, layout_id: int, layout_cfg: dict) -> dict:
+    """Update a remote layout entry."""
+    name = layout_cfg.get("title") or "Dashboard"
+    payload = {
+        "name": name,
+        "config": layout_cfg,
+    }
+    return request(config, "PUT", f"/layouts/{layout_id}", json=payload)
+
+
 def logout() -> None:
     clear_tokens()
     try:

@@ -1,5 +1,6 @@
 """Pydantic schemas for API request/response."""
 from datetime import datetime
+from typing import Dict, Optional
 from pydantic import BaseModel, EmailStr, constr
 
 
@@ -57,3 +58,35 @@ class UserCreateResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LayoutConfig(BaseModel):
+    """Struktur for enkelt dashboard-layout slik desktop-klienten kjenner det."""
+
+    id: Optional[str] = None
+    title: str
+    template: str
+    rows: int
+    cols: int
+    slot_assignments: Dict[str, str] = {}
+
+
+class LayoutOut(BaseModel):
+    id: int
+    name: str
+    config: LayoutConfig
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class LayoutCreate(BaseModel):
+    name: str
+    config: LayoutConfig
+
+
+class LayoutUpdate(BaseModel):
+    name: Optional[str] = None
+    config: Optional[LayoutConfig] = None

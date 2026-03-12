@@ -348,7 +348,7 @@ class TemplateRow(QFrame):
 
 
 class LoginScreen(QWidget):
-    """Innloggingsskjerm – e-post, passord, logg inn / registrer bedrift."""
+    """Innloggingsskjerm – kun e-post og passord (ingen registrering i klienten)."""
     loginSuccess = Signal(dict)  # user info from /me
 
     def __init__(self, parent=None) -> None:
@@ -390,10 +390,6 @@ class LoginScreen(QWidget):
         btn.setObjectName("welcomeOpenButton")
         btn.clicked.connect(self._do_login)
         layout.addWidget(btn)
-        reg_btn = QPushButton("Registrer ny bedrift")
-        reg_btn.setObjectName("secondaryButton")
-        reg_btn.clicked.connect(self._open_register)
-        layout.addWidget(reg_btn)
         row.addWidget(card)
         row.addStretch()
         root.addLayout(row)
@@ -425,25 +421,10 @@ class LoginScreen(QWidget):
                 self.error_label.setText("Kunne ikke koble til – sjekk at API kjører")
 
     def _open_register(self) -> None:
-        from api_client import register, APIError, NotAuthenticatedError
-        config = self.window().config if hasattr(self.window(), "config") else None
-        if not config:
-            return
-        dlg = RegisterDialog(self)
-        if dlg.exec():
-            org_name = dlg.org_name()
-            email = dlg.email()
-            password = dlg.password()
-            if not org_name or not email or not password:
-                self.error_label.setText("Fyll inn alle felt")
-                return
-            try:
-                user = register(config, org_name, email, password)
-                self.loginSuccess.emit(user)
-            except APIError as e:
-                self.error_label.setText(e.detail[:80])
-            except Exception:
-                self.error_label.setText("Kunne ikke registrere – sjekk at API kjører")
+        # Registrering av bedrifter skal kun skje via egen admin-løsning på serveren,
+        # ikke fra desktop-klienten. Behold metoden for å unngå gamle koblinger,
+        # men ikke gjør noe her.
+        self.error_label.setText("Registrering gjøres via admin-portalen, ikke i klienten.")
 
 
 class RegisterDialog(QDialog):

@@ -1,6 +1,6 @@
-"""SQLAlchemy models for organizations, users, refresh tokens."""
+"""SQLAlchemy models for organizations, users, layouts and refresh tokens."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum as SQLEnum, JSON
 from backend.database import Base
 import enum
 
@@ -38,3 +38,18 @@ class RefreshToken(Base):
     token_hash = Column(String(255), nullable=False, unique=True, index=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Layout(Base):
+    __tablename__ = "layouts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    config = Column(JSON, nullable=False)  # full layout-config (rows, cols, slots, template, etc.)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )

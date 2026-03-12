@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import init_db
-from backend.routes import auth, me, users
+from backend.routes import auth, me, users, layouts, admin_portal
 
 app = FastAPI(title="OPS Monitor API", version="1.0.0")
 
@@ -18,6 +18,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(users.router)
+app.include_router(layouts.router)
+app.include_router(admin_portal.router)
 
 
 @app.on_event("startup")

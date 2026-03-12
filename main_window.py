@@ -3,12 +3,27 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List
 import socket
+import json
 
 from PySide6.QtCore import QSize, QTimer, Qt
-from PySide6.QtGui import QPixmap, QGuiApplication, QIcon
+from PySide6.QtGui import QPixmap, QGuiApplication, QIcon, QMouseEvent
 import uuid
 
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QTextEdit, QVBoxLayout, QWidget, QMenu, QTabBar
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+    QMenu,
+)
 
 from app_styles import AMBER, BLUE, GREEN, RED, get_stylesheet
 from data_loader import load_data_from_file
@@ -113,18 +128,18 @@ class OperationsCenterWindow(QMainWindow):
         settings_btn.clicked.connect(self.open_settings_dialog)
         tl.addWidget(settings_btn)
 
-        ml.addWidget(topbar)
+        # Global konto-avatar oppe til høyre
+        self.avatar_label = QLabel()
+        self.avatar_label.setObjectName("userAvatar")
+        self.avatar_label.setFixedSize(32, 32)
+        self.avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.avatar_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Reroute klikkhendelse til egen handler for konto-meny
+        self.avatar_label.mousePressEvent = self._avatar_clicked  # type: ignore[assignment]
+        tl.addWidget(self.avatar_label)
+        self._update_avatar()
 
-        # Tab-bar for dashboards (layouts) – likner nettleser/kode-faner
-        self.tab_bar = QTabBar()
-        self.tab_bar.setObjectName("layoutTabBar")
-        self.tab_bar.setMovable(True)
-        self.tab_bar.setTabsClosable(True)
-        self.tab_bar.setDocumentMode(True)
-        self.tab_bar.currentChanged.connect(self._on_tab_changed)
-        self.tab_bar.tabCloseRequested.connect(self._on_tab_close_requested)
-        ml.addWidget(self.tab_bar)
-        self._refresh_layout_tabs()
+        ml.addWidget(topbar)
 
         cols_cfg = self.config.columns
         name_col = cols_cfg.get("name", "Navn")
@@ -268,6 +283,7 @@ class OperationsCenterWindow(QMainWindow):
         if cached and tokens.get("access_token"):
             self.current_user = cached
             self.statusBar().showMessage(f"Offline – {cached.get('email', '')}  •  Synkroniseres ved tilkobling")
+            self._update_avatar()
             self._show_welcome_or_dashboard()
             return
         self.current_user = None
@@ -280,6 +296,7 @@ class OperationsCenterWindow(QMainWindow):
         self.current_user = user
         set_cached_user(user)
         self.statusBar().showMessage(f"Logget inn som {user.get('email', '')}  •  {user.get('organization_name', '')}")
+        self._update_avatar()
         self._show_welcome_or_dashboard()
 
     def _show_welcome_or_dashboard(self) -> None:
@@ -353,12 +370,45 @@ class OperationsCenterWindow(QMainWindow):
         # Sørg for at canvas kjenner til gjeldende edit-mode
         self.canvas.set_edit_mode(self.edit_mode)
 
+    def _update_avatar(self) -> None:
+        """Oppdater visuell avatar basert på innlogget bruker."""
+        if not hasattr(self, "avatar_label") or self.avatar_label is None:
+            return
+        if not self.current_user:
+            self.avatar_label.setText("")
+            self.avatar_label.setStyleSheet("")
+            return
+        email = self.current_user.get("email", "") or ""
+        initial = (email[0].upper() if email else "?")
+        self.avatar_label.setText(initial)
+        # Enkel sirkelavatar via stylesheet
+        self.avatar_label.setStyleSheet(
+            "border-radius: 16px; background-color: #1d4ed8; color: white; font-weight: 600;"
+        )
+
+    def _avatar_clicked(self, event: QMouseEvent) -> None:
+        """Vis en liten konto-meny når avatar-klikkes."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        menu = QMenu(self)
+        users_action = None
+        if self.current_user and self.current_user.get("role") == "admin":
+            users_action = menu.addAction("Administrer brukere")
+        logout_action = menu.addAction("Logg ut")
+        chosen = menu.exec(self.avatar_label.mapToGlobal(event.pos()))
+        if chosen is users_action:
+            self._open_users_dialog()
+        elif chosen is logout_action:
+            self._do_logout()
+
     def _refresh_layout_tabs(self) -> None:
         """Oppdater tab-bar med ett faneblad per layout + en «+»-fane."""
         if not self.tab_bar:
             return
         self.tab_bar.blockSignals(True)
-        self.tab_bar.clear()
+        # QTabBar har ikke clear() i alle Qt-bindinger; fjern faner manuelt.
+        for i in range(self.tab_bar.count() - 1, -1, -1):
+            self.tab_bar.removeTab(i)
 
         layouts = self.config.layout.get("layouts", [])
         active_id = self.config.layout.get("active_layout_id", "")
@@ -432,9 +482,33 @@ class OperationsCenterWindow(QMainWindow):
         self.modules_drawer.setGeometry(x, y, drawer_width, max(0, h - 2 * margin))
 
     def _save_slot_assignments(self, assignments: dict) -> None:
+        """Lagre slot-assignments lokalt og, hvis mulig, til server (per organisasjon)."""
         active = self._active_layout()
         active["slot_assignments"] = dict(assignments or {})
         save_config(self.config)
+        # Forsøk å synkronisere til backend når vi er online og har en bruker
+        if not self.current_user:
+            return
+        try:
+            from api_client import update_layout_remote, create_layout_remote, APIError
+            remote_id = active.get("remote_id")
+            payload = {
+                "id": active.get("id"),
+                "title": active.get("title", "Dashboard"),
+                "template": active.get("template", "2x2"),
+                "rows": int(active.get("rows", 2)),
+                "cols": int(active.get("cols", 2)),
+                "slot_assignments": active.get("slot_assignments", {}) or {},
+            }
+            if remote_id:
+                update_layout_remote(self.config, int(remote_id), payload)
+            else:
+                created = create_layout_remote(self.config, payload)
+                active["remote_id"] = created.get("id")
+                save_config(self.config)
+        except Exception:
+            # Ved feil lar vi bare lokal lagring gjelde; offline-sync kan utvides senere.
+            return
 
     def toggle_modules_drawer(self) -> None:
         self.modules_drawer.setVisible(not self.modules_drawer.isVisible())
@@ -480,6 +554,76 @@ class OperationsCenterWindow(QMainWindow):
 
         dlg.resize(820, 520)
         dlg.exec()
+
+    def export_layout_file(self) -> None:
+        """Eksporter aktivt layout til en .opsmonitor-fil."""
+        active = self._active_layout()
+        if not active:
+            QMessageBox.information(self, APP_NAME, "Ingen aktivt layout å eksportere.")
+            return
+        suggested = (active.get("title") or "dashboard").replace(" ", "_") + ".opsmonitor"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Eksporter layout",
+            suggested,
+            "OPS Monitor layout (*.opsmonitor);;Alle filer (*.*)",
+        )
+        if not path:
+            return
+        bundle = {
+            "version": 1,
+            "organization_id": self.current_user.get("organization_id") if self.current_user else None,
+            "organization_name": self.current_user.get("organization_name", "") if self.current_user else "",
+            "layouts": [active],
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(bundle, f, ensure_ascii=False, indent=2)
+            QMessageBox.information(self, APP_NAME, "Layout eksportert.")
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, f"Kunne ikke eksportere layout:\n{exc}")
+
+    def import_layout_file(self) -> None:
+        """Importer ett eller flere layouts fra en .opsmonitor-fil."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Importer layout",
+            "",
+            "OPS Monitor layout (*.opsmonitor);;JSON (*.json);;Alle filer (*.*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, f"Kunne ikke lese fil:\n{exc}")
+            return
+        layouts = data.get("layouts")
+        if not isinstance(layouts, list) or not layouts:
+            QMessageBox.warning(self, APP_NAME, "Filen inneholder ingen layouts.")
+            return
+        existing_ids = {l.get("id") for l in self.config.layout.get("layouts", [])}
+        imported = []
+        for entry in layouts:
+            if not isinstance(entry, dict):
+                continue
+            layout_id = entry.get("id") or "layout_" + uuid.uuid4().hex[:8]
+            if layout_id in existing_ids:
+                layout_id = "layout_" + uuid.uuid4().hex[:8]
+            entry = dict(entry)
+            entry["id"] = layout_id
+            imported.append(entry)
+            existing_ids.add(layout_id)
+        if not imported:
+            QMessageBox.information(self, APP_NAME, "Ingen gyldige layouts å importere.")
+            return
+        self.config.layout.setdefault("layouts", []).extend(imported)
+        # sett aktivt layout til første importerte
+        self.config.layout["active_layout_id"] = imported[0]["id"]
+        self.config.layout["title"] = imported[0].get("title", "Dashboard")
+        save_config(self.config)
+        self._show_welcome_or_dashboard()
 
     def delete_current_layout(self) -> None:
         layouts = list(self.config.layout.get("layouts", []))
@@ -680,6 +824,9 @@ class OperationsCenterWindow(QMainWindow):
         menu = QMenu(self)
         edit_action = menu.addAction("Edit mode")
         display_action = menu.addAction("Display mode")
+        new_window_action = menu.addAction("Åpne nytt vindu")
+        export_action = menu.addAction("Eksporter layout…")
+        import_action = menu.addAction("Importer layout…")
         users_action = None
         if self.current_user and self.current_user.get("role") == "admin":
             users_action = menu.addAction("Administrer brukere")
@@ -695,6 +842,12 @@ class OperationsCenterWindow(QMainWindow):
             self.set_edit_mode(True)
         elif chosen is display_action:
             self.set_edit_mode(False)
+        elif chosen is new_window_action:
+            self.open_new_window()
+        elif chosen is export_action:
+            self.export_layout_file()
+        elif chosen is import_action:
+            self.import_layout_file()
         elif chosen is users_action:
             self._open_users_dialog()
         elif chosen is logout_action:
@@ -705,6 +858,14 @@ class OperationsCenterWindow(QMainWindow):
             return
         dlg = UsersDialog(self.config, self.current_user, self)
         dlg.exec()
+
+    def open_new_window(self) -> None:
+        """Åpne et nytt hovedvindu (for flere dashboard-visninger samtidig)."""
+        app = QApplication.instance()
+        if app is None:
+            return
+        win = OperationsCenterWindow()
+        win.show()
 
     def _do_logout(self) -> None:
         api_logout()
