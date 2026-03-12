@@ -4,6 +4,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ops_monitor.db")
+
+# Vercel/Prisma gir ofte URLer på formen postgres://... – SQLAlchemy 2.x
+# forventer postgresql+psycopg:// når vi bruker psycopg (v3-driver).
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 else:
