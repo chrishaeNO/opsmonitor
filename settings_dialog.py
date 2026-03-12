@@ -317,8 +317,8 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(12)
 
-        # ── API-nøkkel (primary) ──────────────────────────────────────────
-        key_header = QLabel("API-nøkkel (anbefalt)")
+        # ── API-nøkkel ────────────────────────────────────────────────────
+        key_header = QLabel("API-nøkkel")
         key_header.setObjectName("dialogSectionLabel")
         layout.addWidget(key_header)
 
@@ -375,33 +375,6 @@ class SettingsDialog(QDialog):
         key_layout.addWidget(key_hint)
 
         layout.addWidget(key_card)
-
-        # ── Base URL (avansert / fallback) ────────────────────────────────
-        url_header = QLabel("Server-URL (avansert)")
-        url_header.setObjectName("dialogSectionLabel")
-        layout.addWidget(url_header)
-
-        url_card = QFrame()
-        url_card.setObjectName("dialogCard")
-        url_layout = QVBoxLayout(url_card)
-        url_layout.setContentsMargins(14, 12, 14, 12)
-        url_layout.setSpacing(8)
-
-        url_desc = QLabel(
-            "Brukes bare hvis du kjører en egendriftet OPS Monitor-backend.\n"
-            "La feltet stå tomt for å bruke standardserveren."
-        )
-        url_desc.setObjectName("welcomeSubtitle")
-        url_desc.setWordWrap(True)
-        url_layout.addWidget(url_desc)
-
-        self.api_base_url_input = QLineEdit(self.config.api_base_url)
-        self.api_base_url_input.setPlaceholderText("https://opsmonitor-alpha.vercel.app")
-        self.api_base_url_input.setObjectName("dialogInput")
-        self.api_base_url_input.setMinimumHeight(36)
-        url_layout.addWidget(self.api_base_url_input)
-
-        layout.addWidget(url_card)
         layout.addStretch()
         return tab
 
@@ -498,8 +471,6 @@ class SettingsDialog(QDialog):
         self.config.layout["title"] = self.layout_title_input.text().strip()
         if hasattr(self, "api_key_input"):
             self.config.api_key = self.api_key_input.text().strip()
-        if hasattr(self, "api_base_url_input"):
-            self.config.api_base_url = self.api_base_url_input.text().strip() or "https://opsmonitor-alpha.vercel.app"
 
     def auto_map_from_patropp(self) -> None:
         self._auto_map(self.patropp_url.text().strip(), self.patropp_sheet.value())
